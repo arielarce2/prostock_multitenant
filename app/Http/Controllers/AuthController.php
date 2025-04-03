@@ -3,50 +3,81 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
-use App\Services\TenantDatabaseService;
+use App\Services\DatabaseService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\UserRegistered;
+use App\Mail\VerificationEmail;
 
 class AuthController extends Controller {
     protected $databaseService;
 
-    public function __construct(TenantDatabaseService $databaseService) {
+    public function __construct(DatabaseService $databaseService) {
         $this->databaseService = $databaseService;
     }
 
-    public function register(Request $request) {
+    public function register(Request $request)
+    {
         $request->validate([
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:6|confirmed',
         ]);
     
-        $databaseName = 'prostock_tenant_' . Str::random(8);
+        // Generar un código de verificación
+        $verificationCode = Str::random(6);
     
-        // Crear usuario en la base central con el UUID
+        // Crear un usuario temporal en la base de datos central
         $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => Hash::make($request->password),
-            'tenant_db' => $databaseName,
+            'verification_code' => $verificationCode,
         ]);
     
+        // Enviar el correo de verificación
+        Mail::to($user->email)->send(new VerificationEmail($user));
+    
+        return response()->json(['message' => 'Se ha enviado un código de verificación a tu correo.'], 201);
+    }
+
+    public function verifyEmail(Request $request)
+    {
+        $request->validate([
+            'verification_code' => 'required|string',
+        ]);
+    
+        // Buscar el usuario solo por el código de verificación
+        $user = User::where('verification_code', $request->verification_code)->first();
+    
+        if (!$user) {
+            return response()->json(['message' => 'Código de verificación inválido.'], 404);
+        }
+
+        $databaseName = 'prostock_tenant_' . Str::random(6);
+        $user->email_verified_at = now();
+        $user->tenant_db = $databaseName;
+        $user->save();
+    
         // Crear base de datos con el UUID
-        $this->databaseService->createDatabase($databaseName);
+        $this->databaseService->createDatabase($user->tenant_db);
     
         // Ejecutar migraciones en la nueva base de datos
-        $this->databaseService->migrateDatabase($databaseName);
+        $this->databaseService->migrateDatabase($user->tenant_db);
     
         // Crear usuario en la base de datos del tenant
-        $this->databaseService->createTenantUser($databaseName, [
+        $this->databaseService->createTenantUser($user->tenant_db, [
             'name' => $user->name,
             'email' => $user->email,
             'password' => $user->password,
         ]);
+
+        Mail::to($user->email)->send(new UserRegistered($user));
     
-        return response()->json(['message' => 'Usuario registrado y base de datos creada'], 201);
+        return response()->json(['message' => 'Cuenta creada exitosamente.'], 201);
     }
 
     // Método para iniciar sesión

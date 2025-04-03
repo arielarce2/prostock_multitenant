@@ -58,11 +58,15 @@ php artisan migrate
 
 ## Comandos Personalizados
 
-### Limpiar Bases de Datos de Tenants
+### Limpiar Bases de Datos de Tenants (Este comando elimina todas las bases de datos de los tenants y ejecuta `migrate:fresh` en la base de datos central.)
 ```bash
 php artisan tenants:fresh
 ```
-Este comando elimina todas las bases de datos de los tenants y ejecuta `migrate:fresh` en la base de datos central.
+
+### Aplicar migraciones sobre todas las bases e datos de los tenants
+```bash
+php artisan tenants:migrate
+```
 
 ## Endpoints API
 
